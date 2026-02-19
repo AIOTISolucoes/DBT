@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: public
+    schema: public
+    tables:
+      - name: device
+      - name: device_type
+      - name: power_plant
+      - name: event_catalog
+
+      # RAW tables
+      - name: raw_inverter
+      - name: raw_relay
+      - name: raw_logger
+      - name: raw_meter
+      - name: raw_tracker
+      - name: raw_weather_station
+      - name: raw_transformer
+      - name: raw_nobreak
