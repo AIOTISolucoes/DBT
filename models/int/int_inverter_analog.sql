@@ -93,12 +93,20 @@ select
 
     a.active_power_kw,
     a.power_reactive_kvar,
+
+    -- ✅ potência aparente (kVA) vinda do STG
+    a.apparent_power_kva,
+
     a.power_input_kw,
     a.power_factor,
     a.daily_active_energy_kwh,
     a.cumulative_active_energy_kwh,
 
+<<<<<<< Updated upstream
     -- ✅ NOVO: potência DC (vem do stg_inverter_analog)
+=======
+    -- ✅ potência DC (existe no STG)
+>>>>>>> Stashed changes
     a.power_dc_kw,
 
     case when a.active_power_kw > 0 then true else false end as is_generating,

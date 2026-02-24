@@ -58,9 +58,15 @@ select
     dv.device_id,
     dv.device_name as inverter_name,
 
+<<<<<<< Updated upstream
     -- =============================
     -- ✅ COLUNAS PRINCIPAIS (UI)
     -- =============================
+=======
+    -- ======================================================
+    -- COLUNAS UI (se não tem dado, zera)
+    -- ======================================================
+>>>>>>> Stashed changes
     coalesce(sn.active_power_kw, 0) as power_kw,
 
     coalesce(
@@ -78,6 +84,7 @@ select
 
     sn.timestamp as last_reading_ts,
 
+<<<<<<< Updated upstream
     -- =============================
     -- ✅ EXTRAS (DETALHES DO INVERSOR)
     -- (mantém NULL quando não há dado)
@@ -129,10 +136,27 @@ select
       when sn.state_operation = 16 then 2                 -- RUNNING
       when sn.state_operation = 2  then 3                 -- FAULT
       when sn.state_operation in (0, 1) then 1            -- STANDBY/OFF
+=======
+    -- ======================================================
+    -- ✅ NOVO: POTÊNCIA APARENTE (kVA) — vem do INT
+    -- ======================================================
+    sn.apparent_power_kva as apparent_power_kva,
 
-      -- ✅ fallback: sem state_operation confiável
-      when coalesce(sn.active_power_kw, 0) > 0.1 then 2   -- RUNNING
-      else 1                                              -- STANDBY/OFF
+    -- ======================================================
+    -- STATUS CODE:
+    -- 0 OFFLINE (No comm), 1 STANDBY/OFF, 2 RUNNING, 3 FAULT
+    -- ======================================================
+    case
+      when sn.timestamp is null then 0
+      when now() - sn.timestamp > interval '8 minutes' then 0
+
+      when sn.state_operation = 16 then 2
+      when sn.state_operation = 2  then 3
+      when sn.state_operation in (0, 1) then 1
+>>>>>>> Stashed changes
+
+      when coalesce(sn.active_power_kw, 0) > 0.1 then 2
+      else 1
     end as inverter_status_code,
 
     case
