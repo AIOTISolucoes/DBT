@@ -1,6 +1,7 @@
 {{ config(
     materialized = 'incremental',
-    unique_key = ['timestamp', 'device_id']
+    unique_key = ['timestamp', 'device_id'],
+    on_schema_change = 'sync_all_columns'
 ) }}
 
 with base as (
@@ -41,9 +42,12 @@ select
     power_plant_id,
     device_id,
 
+    -- ======================================================
     -- POTÊNCIAS
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'active_power'), '') is null then null
+      when replace(trim(json_data ->> 'active_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'active_power') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'active_power'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'active_power'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -53,6 +57,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'reactive_power'), '') is null then null
+      when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'reactive_power') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'reactive_power'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -60,9 +65,21 @@ select
       else null
     end as power_reactive_kvar,
 
+    -- ✅ NOVO: POTÊNCIA APARENTE (kVA) — vem do payload 'apparent_power'
+    case
+      when nullif(trim(json_data ->> 'apparent_power'), '') is null then null
+      when replace(trim(json_data ->> 'apparent_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
+      when trim(json_data ->> 'apparent_power') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
+        then ('-' || regexp_replace(trim(json_data ->> 'apparent_power'), '^0\.-', ''))::numeric
+      when replace(trim(json_data ->> 'apparent_power'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
+        then replace(trim(json_data ->> 'apparent_power'), ',', '.')::numeric
+      else null
+    end as apparent_power_kva,
+
     -- ✅ AJUSTE: power_input_kw agora aceita power_input OU power_dc
     case
       when nullif(trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')), '') is null then null
+      when replace(trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')) ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')), '^0\.-', ''))::numeric
       when replace(trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -72,6 +89,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'power_factor'), '') is null then null
+      when replace(trim(json_data ->> 'power_factor'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'power_factor') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'power_factor'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'power_factor'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -79,9 +97,12 @@ select
       else null
     end as power_factor,
 
+    -- ======================================================
     -- ENERGIA
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'total_daily_energy'), '') is null then null
+      when replace(trim(json_data ->> 'total_daily_energy'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'total_daily_energy') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'total_daily_energy'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'total_daily_energy'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -91,6 +112,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'total_energy'), '') is null then null
+      when replace(trim(json_data ->> 'total_energy'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'total_energy') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'total_energy'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'total_energy'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -98,9 +120,12 @@ select
       else null
     end as cumulative_active_energy_kwh,
 
+    -- ======================================================
     -- FREQUÊNCIA / EFICIÊNCIA
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'frequency'), '') is null then null
+      when replace(trim(json_data ->> 'frequency'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'frequency') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'frequency'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'frequency'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -108,9 +133,9 @@ select
       else null
     end as frequency_hz,
 
-    -- ✅ vem do payload (efficiency)
     case
       when nullif(trim(json_data ->> 'efficiency'), '') is null then null
+      when replace(trim(json_data ->> 'efficiency'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'efficiency') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'efficiency'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'efficiency'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -118,9 +143,12 @@ select
       else null
     end as efficiency_pct,
 
+    -- ======================================================
     -- CORRENTES AC
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'current_ac_phase_a'), '') is null then null
+      when replace(trim(json_data ->> 'current_ac_phase_a'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'current_ac_phase_a') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'current_ac_phase_a'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'current_ac_phase_a'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -130,6 +158,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'current_ac_phase_b'), '') is null then null
+      when replace(trim(json_data ->> 'current_ac_phase_b'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'current_ac_phase_b') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'current_ac_phase_b'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'current_ac_phase_b'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -139,6 +168,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'current_ac_phase_c'), '') is null then null
+      when replace(trim(json_data ->> 'current_ac_phase_c'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'current_ac_phase_c') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'current_ac_phase_c'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'current_ac_phase_c'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -146,9 +176,12 @@ select
       else null
     end as current_phase_c_a,
 
+    -- ======================================================
     -- TENSÕES AC (LINHA)
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'voltage_ac_phase_ab'), '') is null then null
+      when replace(trim(json_data ->> 'voltage_ac_phase_ab'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'voltage_ac_phase_ab') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'voltage_ac_phase_ab'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'voltage_ac_phase_ab'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -158,6 +191,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'voltage_ac_phase_bc'), '') is null then null
+      when replace(trim(json_data ->> 'voltage_ac_phase_bc'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'voltage_ac_phase_bc') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'voltage_ac_phase_bc'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'voltage_ac_phase_bc'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -167,6 +201,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'voltage_ac_phase_ca'), '') is null then null
+      when replace(trim(json_data ->> 'voltage_ac_phase_ca'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'voltage_ac_phase_ca') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'voltage_ac_phase_ca'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'voltage_ac_phase_ca'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -174,9 +209,12 @@ select
       else null
     end as line_voltage_ca_v,
 
+    -- ======================================================
     -- DC
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'voltage_dc'), '') is null then null
+      when replace(trim(json_data ->> 'voltage_dc'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'voltage_dc') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'voltage_dc'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'voltage_dc'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -186,6 +224,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'power_dc'), '') is null then null
+      when replace(trim(json_data ->> 'power_dc'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'power_dc') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'power_dc'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'power_dc'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -193,9 +232,12 @@ select
       else null
     end as power_dc_kw,
 
+    -- ======================================================
     -- TEMPERATURA / ISOLAÇÃO
+    -- ======================================================
     case
       when nullif(trim(json_data ->> 'temperature_current'), '') is null then null
+      when replace(trim(json_data ->> 'temperature_current'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'temperature_current') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'temperature_current'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'temperature_current'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -205,6 +247,7 @@ select
 
     case
       when nullif(trim(json_data ->> 'isolation'), '') is null then null
+      when replace(trim(json_data ->> 'isolation'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
       when trim(json_data ->> 'isolation') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
         then ('-' || regexp_replace(trim(json_data ->> 'isolation'), '^0\.-', ''))::numeric
       when replace(trim(json_data ->> 'isolation'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
@@ -212,17 +255,19 @@ select
       else null
     end as resistance_insulation_mohm,
 
-    -- WORKING STATUS
+    -- ======================================================
+    -- WORKING STATUS / ESTADO OPERACIONAL
+    -- ======================================================
     case
       when (json_data ->> 'working_status') ~ '^[0-9]+$'
       then (json_data ->> 'working_status')::int
       else null
     end as working_status,
 
-    -- ESTADO OPERACIONAL
+    -- ✅ FIX: aceita inverter_status OU Inverter_status (payload do CLP)
     case
-      when (json_data ->> 'inverter_status') ~ '^[0-9]+$'
-      then (json_data ->> 'inverter_status')::int
+      when coalesce(json_data ->> 'inverter_status', json_data ->> 'Inverter_status') ~ '^[0-9]+$'
+      then coalesce(json_data ->> 'inverter_status', json_data ->> 'Inverter_status')::int
       else null
     end as state_operation
 
