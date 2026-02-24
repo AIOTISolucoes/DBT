@@ -55,11 +55,17 @@ select
       else null
     end as active_power_kw,
 
+    -- ✅ FIX AQUI: primeiro trata "0.-330" (bug), depois bloqueia range "100-200"
     case
       when nullif(trim(json_data ->> 'reactive_power'), '') is null then null
+
+      -- trata bug: "0.-330" -> -330
+      when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
+        then ('-' || regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', ''))::numeric
+
+      -- bloqueia faixa: "100-200"
       when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
-      when trim(json_data ->> 'reactive_power') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
-        then ('-' || regexp_replace(trim(json_data ->> 'reactive_power'), '^0\.-', ''))::numeric
+
       when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
         then replace(trim(json_data ->> 'reactive_power'), ',', '.')::numeric
       else null
@@ -264,7 +270,6 @@ select
       else null
     end as working_status,
 
-    -- ✅ FIX: aceita inverter_status OU Inverter_status (payload do CLP)
     case
       when coalesce(json_data ->> 'inverter_status', json_data ->> 'Inverter_status') ~ '^[0-9]+$'
       then coalesce(json_data ->> 'inverter_status', json_data ->> 'Inverter_status')::int
