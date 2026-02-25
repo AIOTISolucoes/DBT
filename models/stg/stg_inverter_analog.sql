@@ -55,19 +55,18 @@ select
       else null
     end as active_power_kw,
 
-    -- ✅ FIX AQUI: primeiro trata "0.-330" (bug), depois bloqueia range "100-200"
+    -- ✅ FIX DEFINITIVO: normaliza 0.-xxx ANTES do cast (reactive_power)
     case
       when nullif(trim(json_data ->> 'reactive_power'), '') is null then null
 
-      -- trata bug: "0.-330" -> -330
-      when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '^0\.-[0-9]+(\.[0-9]+)?$'
-        then ('-' || regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', ''))::numeric
+      -- bloqueia "faixa": ex "100-200" (mas já com string normalizada)
+      when regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', '-') ~ '.*[0-9]+-[0-9]+.*'
+        then null
 
-      -- bloqueia faixa: "100-200"
-      when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
+      -- cast seguro usando SEMPRE a string normalizada:
+      when regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', '-') ~ '^-?[0-9]+(\.[0-9]+)?$'
+        then regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', '-')::numeric
 
-      when replace(trim(json_data ->> 'reactive_power'), ',', '.') ~ '^-?[0-9]+(\.[0-9]+)?$'
-        then replace(trim(json_data ->> 'reactive_power'), ',', '.')::numeric
       else null
     end as power_reactive_kvar,
 
