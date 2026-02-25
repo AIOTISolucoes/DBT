@@ -1,7 +1,6 @@
 {{ config(materialized = 'view') }}
 
 with devices as (
-    -- ✅ 1 linha por INVERSOR ATIVO (fonte da verdade para "total")
     select
         pp.customer_id,
         pp.id   as power_plant_id,
@@ -18,7 +17,6 @@ with devices as (
 ),
 
 base as (
-    -- leituras do inverter (pode ter vários registros por device)
     select
         a.*,
         pp.customer_id
@@ -28,7 +26,6 @@ base as (
 ),
 
 last_per_inverter as (
-    -- ✅ pega o último timestamp por inverter
     select
         customer_id,
         power_plant_id,
@@ -39,7 +36,6 @@ last_per_inverter as (
 ),
 
 snap as (
-    -- ✅ snapshot da última leitura (pode ficar vazio para inverter sem dado)
     select
         b.*
     from base b
@@ -58,12 +54,7 @@ select
     dv.device_id,
     dv.device_name as inverter_name,
 
-    -- =============================
-    -- ✅ COLUNAS PRINCIPAIS (UI)
-    -- =============================
-    -- ======================================================
-    -- COLUNAS UI (se não tem dado, zera)
-    -- ======================================================
+    -- UI
     coalesce(sn.active_power_kw, 0) as power_kw,
 
     coalesce(
@@ -78,15 +69,10 @@ select
     sn.frequency_hz           as freq_hz,
 
     null::numeric as pr,
-
     sn.timestamp as last_reading_ts,
 
-    -- =============================
-    -- ✅ EXTRAS (DETALHES DO INVERSOR)
-    -- (mantém NULL quando não há dado)
-    -- =============================
-
-    -- Potências / PF / energia
+    -- EXTRAS
+    sn.apparent_power_kva           as apparent_power_kva,
     sn.power_factor                 as power_factor,
     sn.power_reactive_kvar          as power_reactive_kvar,
     sn.power_input_kw               as power_input_kw,
@@ -94,61 +80,33 @@ select
     sn.daily_active_energy_kwh      as daily_active_energy_kwh,
     sn.cumulative_active_energy_kwh as cumulative_active_energy_kwh,
 
-    -- Correntes AC
     sn.current_phase_a_a            as current_phase_a_a,
     sn.current_phase_b_a            as current_phase_b_a,
     sn.current_phase_c_a            as current_phase_c_a,
 
-    -- Tensões AC (linha)
     sn.line_voltage_ab_v            as line_voltage_ab_v,
     sn.line_voltage_bc_v            as line_voltage_bc_v,
     sn.line_voltage_ca_v            as line_voltage_ca_v,
 
-    -- DC
     sn.string_voltage_v             as string_voltage_v,
     sn.power_dc_kw                  as power_dc_kw,
 
-    -- Isolação (MΩ)
     sn.resistance_insulation_mohm   as resistance_insulation_mohm,
 
-    -- Status cru (debug)
     sn.working_status               as working_status,
     sn.inverter_status              as inverter_status,
     sn.state_operation              as state_operation,
 
-    -- Comunicação
     sn.communication_fault_code     as communication_fault_code,
     sn.is_communication_ok          as is_communication_ok,
 
-    -- =============================
-    -- ✅ STATUS (CHIPS)
-    -- 0 OFFLINE (No comm), 1 STANDBY/OFF, 2 RUNNING, 3 FAULT
-    -- =============================
+    -- STATUS
     case
       when sn.timestamp is null then 0
       when now() - sn.timestamp > interval '15 minutes' then 0
-
-      -- ✅ por state_operation quando existir
-      when sn.state_operation = 16 then 2                 -- RUNNING
-      when sn.state_operation = 2  then 3                 -- FAULT
-      when sn.state_operation in (0, 1) then 1            -- STANDBY/OFF
-    -- ======================================================
-    -- ✅ NOVO: POTÊNCIA APARENTE (kVA) — vem do INT
-    -- ======================================================
-    sn.apparent_power_kva as apparent_power_kva,
-
-    -- ======================================================
-    -- STATUS CODE:
-    -- 0 OFFLINE (No comm), 1 STANDBY/OFF, 2 RUNNING, 3 FAULT
-    -- ======================================================
-    case
-      when sn.timestamp is null then 0
-      when now() - sn.timestamp > interval '8 minutes' then 0
-
       when sn.state_operation = 16 then 2
       when sn.state_operation = 2  then 3
       when sn.state_operation in (0, 1) then 1
-
       when coalesce(sn.active_power_kw, 0) > 0.1 then 2
       else 1
     end as inverter_status_code,
