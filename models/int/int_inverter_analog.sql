@@ -102,11 +102,7 @@ select
     a.daily_active_energy_kwh,
     a.cumulative_active_energy_kwh,
 
-<<<<<<< Updated upstream
-    -- ✅ NOVO: potência DC (vem do stg_inverter_analog)
-=======
-    -- ✅ potência DC (existe no STG)
->>>>>>> Stashed changes
+    -- ✅ potência DC (kW) vinda do stg_inverter_analog
     a.power_dc_kw,
 
     case when a.active_power_kw > 0 then true else false end as is_generating,
