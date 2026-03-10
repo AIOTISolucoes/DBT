@@ -10,12 +10,26 @@ with base as (
         r.power_plant_id,
         r.device_id,
         kv.key,
-        kv.value::boolean as event_value
+
+        case
+            when jsonb_typeof(kv.value) = 'boolean'
+                then (kv.value)::boolean
+
+            when jsonb_typeof(kv.value) = 'string'
+                 and lower(trim(both '"' from kv.value::text)) in ('1', 'true')
+                then true
+
+            when jsonb_typeof(kv.value) = 'string'
+                 and lower(trim(both '"' from kv.value::text)) in ('0', 'false')
+                then false
+
+            else null
+        end as event_value
+
     from {{ source('public','raw_relay') }} r
     cross join lateral jsonb_each(r.json_data) kv
     where
-        jsonb_typeof(kv.value) = 'boolean'
-        and kv.key not like '%_quality'
+        kv.key not like '%_quality'
         and (
             kv.key like 'flag_%'
             or kv.key in (
@@ -26,9 +40,11 @@ with base as (
         )
 
     {% if is_incremental() %}
-      and r.timestamp > (select max(timestamp) from {{ this }})
+      and r.timestamp > (
+        select coalesce(max(timestamp), '1970-01-01'::timestamptz)
+        from {{ this }}
+      )
     {% endif %}
-
 ),
 
 parsed as (
@@ -37,13 +53,11 @@ parsed as (
         timestamp,
         power_plant_id,
         device_id,
-
-        -- extrai SOMENTE o número do flag
         regexp_replace(key, '[^0-9]', '', 'g')::int as event_code,
         event_value
     from base
     where regexp_replace(key, '[^0-9]', '', 'g') <> ''
-
+      and event_value is not null
 ),
 
 dedup as (
@@ -51,11 +65,7 @@ dedup as (
     select
         *,
         row_number() over (
-            partition by
-                timestamp,
-                power_plant_id,
-                device_id,
-                event_code
+            partition by timestamp, power_plant_id, device_id, event_code
             order by timestamp
         ) as rn
     from parsed
