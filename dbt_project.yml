@@ -1,30 +1,40 @@
 name: 'solar_scada'
 version: '1.0.0'
 profile: 'solar_scada'
-
 model-paths: ["models"]
 analysis-paths: ["analyses"]
 test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
-
 clean-targets:
   - "target"
   - "dbt_packages"
   - "logs"
-
 models:
   solar_scada:
-    example:
-      +materialized: view
     stg:
       +materialized: view
     int:
       +materialized: view
+      int_datastudio_points:
+        +schema: analytics
     mart:
       +materialized: table
-
+      mart_datastudio_daily:
+        +schema: analytics
+      mart_datastudio_intraday:
+        +schema: analytics
+      mart_datastudio_monthly:
+        +schema: analytics
+      mart_datastudio_timeseries:
+        +schema: analytics
+      mart_datastudio_hist_15min:
+        +schema: analytics
+      mart_datastudio_hist_hourly:
+        +schema: analytics
+      mart_datastudio_hist_daily:
+        +schema: analytics
 seeds:
   solar_scada:
     +quote_columns: false
