@@ -1,42 +1,82 @@
 {{ config(
     materialized = 'incremental',
-    unique_key = ['timestamp','device_id','event_code']
+    unique_key = ['timestamp','device_id'],
+    on_schema_change = 'sync_all_columns'
 ) }}
 
 with base as (
+
     select
-        r.timestamp,
-        r.power_plant_id,
-        r.device_id,
-        kv.key::int        as event_code,
-        kv.value::boolean as event_value
-    from {{ source('public','raw_weather_station') }} r
-    cross join lateral jsonb_each(r.json_data) kv
-    where jsonb_typeof(kv.value) = 'boolean'
+        w.timestamp,
+        w.power_plant_id,
+        w.device_id,
+        w.json_data
+    from {{ source('public','raw_weather_station') }} w
+    inner join public.device d
+        on d.id = w.device_id
+       and d.is_active is true
+
     {% if is_incremental() %}
-      and r.timestamp > (select max(timestamp) from {{ this }})
+      where w.timestamp > (
+        select coalesce(max(timestamp), '1970-01-01'::timestamptz)
+        from {{ this }}
+      )
     {% endif %}
+
 ),
 
-dedup as (
+current_values as (
+
+    select
+        timestamp,
+        power_plant_id,
+        device_id,
+        'communication_fault' as key,
+        json_data -> 'communication_fault' as value
+    from base
+    where json_data ? 'communication_fault'
+
+),
+
+with_prev as (
+
     select
         *,
-        row_number() over (
-            partition by
-                timestamp,
-                power_plant_id,
-                device_id,
-                event_code
+        lag(value) over (
+            partition by power_plant_id, device_id, key
             order by timestamp
-        ) as rn
-    from base
+        ) as prev_value
+    from current_values
+
+),
+
+only_changed_keys as (
+
+    select
+        timestamp,
+        power_plant_id,
+        device_id,
+        key,
+        value
+    from with_prev
+    where prev_value is distinct from value
+
+),
+
+changed_json as (
+
+    select
+        timestamp,
+        power_plant_id,
+        device_id,
+        jsonb_object_agg(key, value) as discrete_data_json
+    from only_changed_keys
+    group by
+        timestamp,
+        power_plant_id,
+        device_id
+
 )
 
-select
-    timestamp,
-    power_plant_id,
-    device_id,
-    event_code,
-    event_value
-from dedup
-where rn = 1
+select *
+from changed_json

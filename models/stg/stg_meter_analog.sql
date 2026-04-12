@@ -4,15 +4,24 @@
 ) }}
 
 with base as (
+
     select
-        r.timestamp,
-        r.power_plant_id,
-        r.device_id,
-        r.json_data
-    from {{ source('public','raw_meter') }} r
+        m.timestamp,
+        m.power_plant_id,
+        m.device_id,
+        m.json_data
+    from {{ source('public','raw_meter') }} m
+    inner join public.device d
+        on d.id = m.device_id
+       and d.is_active is true
+
     {% if is_incremental() %}
-      where r.timestamp > (select max(timestamp) from {{ this }})
+      where m.timestamp > (
+        select coalesce(max(timestamp), '1970-01-01'::timestamptz)
+        from {{ this }}
+      )
     {% endif %}
+
 )
 
 select
@@ -20,29 +29,26 @@ select
     power_plant_id,
     device_id,
 
-    -- Potências
-    (json_data ->> 'active_power')::numeric           as active_power_kw,
-    (json_data ->> 'power_reactive')::numeric         as power_reactive_kvar,
-    (json_data ->> 'apparent_power')::numeric         as apparent_power_kva,
-    (json_data ->> 'power_factor')::numeric           as power_factor,
+    -- TENSÕES
+    nullif(json_data ->> 'volt_uab_line', '')::numeric      as voltage_ab_v,
+    nullif(json_data ->> 'volt_ubc_line', '')::numeric      as voltage_bc_v,
+    nullif(json_data ->> 'volt_uca_line', '')::numeric      as voltage_ca_v,
 
-    -- Frequência
-    (json_data ->> 'frequency')::numeric              as frequency_hz,
+    -- CORRENTES
+    nullif(json_data ->> 'current_a_phase_a', '')::numeric  as current_a_a,
+    nullif(json_data ->> 'current_b_phase_b', '')::numeric  as current_b_a,
+    nullif(json_data ->> 'current_c_phase_c', '')::numeric  as current_c_a,
 
-    -- Energias
-    (json_data ->> 'exported_active_energy')::numeric    as exported_active_energy_kwh,
-    (json_data ->> 'imported_active_energy')::numeric    as imported_active_energy_kwh,
-    (json_data ->> 'exported_reactive_energy')::numeric  as exported_reactive_energy_kvarh,
-    (json_data ->> 'imported_reactive_energy')::numeric  as imported_reactive_energy_kvarh,
+    -- POTÊNCIAS
+    nullif(json_data ->> 'active_power', '')::numeric       as active_power_kw,
+    nullif(json_data ->> 'react_power', '')::numeric        as reactive_power_kvar,
 
-    -- Correntes
-    (json_data ->> 'current_phase_a')::numeric        as current_phase_a_a,
-    (json_data ->> 'current_phase_b')::numeric        as current_phase_b_a,
-    (json_data ->> 'current_phase_c')::numeric        as current_phase_c_a,
+    -- ELÉTRICAS
+    nullif(json_data ->> 'power_factor', '')::numeric       as power_factor,
+    nullif(json_data ->> 'frequency', '')::numeric          as frequency_hz,
 
-    -- Tensões
-    (json_data ->> 'line_voltage_ab')::numeric        as line_voltage_ab_v,
-    (json_data ->> 'line_voltage_bc')::numeric        as line_voltage_bc_v,
-    (json_data ->> 'line_voltage_ca')::numeric        as line_voltage_ca_v
+    -- ENERGIAS
+    nullif(json_data ->> 'energy_imp', '')::numeric         as energy_import_kwh,
+    nullif(json_data ->> 'energy_exp', '')::numeric         as energy_export_kwh
 
 from base

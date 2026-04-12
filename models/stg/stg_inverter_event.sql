@@ -12,6 +12,9 @@ with base as (
         r.device_id,
         r.json_data
     from {{ source('public', 'raw_inverter') }} r
+    inner join public.device d
+        on d.id = r.device_id
+       and d.is_active = true
 
     {% if is_incremental() %}
       where r.timestamp > (
@@ -22,7 +25,6 @@ with base as (
 
 ),
 
--- tenta achar "sub-objeto" de discretos (se existir); senão usa o json inteiro
 normalized as (
 
     select
@@ -39,34 +41,61 @@ normalized as (
 
 ),
 
-discrete_only as (
+current_values as (
+
+    select
+        n.timestamp,
+        n.power_plant_id,
+        n.device_id,
+        kv.key,
+        kv.value
+    from normalized n
+    cross join lateral jsonb_each(n.discrete_src) kv
+    where
+        kv.key ~ '^ID([1-9]|[1-4][0-9]|5[0-5])$'
+        or kv.key = 'communication_fault'
+
+),
+
+with_prev as (
+
+    select
+        *,
+        lag(value) over (
+            partition by power_plant_id, device_id, key
+            order by timestamp
+        ) as prev_value
+    from current_values
+
+),
+
+only_changed_keys as (
 
     select
         timestamp,
         power_plant_id,
         device_id,
-        coalesce(
-            jsonb_object_agg(key, value),
-            '{}'::jsonb
-        ) as discrete_data_json
-    from (
-        select
-            timestamp,
-            power_plant_id,
-            device_id,
-            key,
-            value
-        from normalized
-        cross join lateral jsonb_each(discrete_src)
-        where
-            lower(key) like 'id%'
-            or key in ('communication_fault', 'working_status', 'inverter_status')
-    ) d
+        key,
+        value
+    from with_prev
+    where prev_value is distinct from value
+
+),
+
+changed_json as (
+
+    select
+        timestamp,
+        power_plant_id,
+        device_id,
+        jsonb_object_agg(key, value) as discrete_data_json
+    from only_changed_keys
     group by
         timestamp,
         power_plant_id,
         device_id
+
 )
 
 select *
-from discrete_only
+from changed_json

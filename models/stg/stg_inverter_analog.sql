@@ -7,15 +7,18 @@
 with base as (
 
     select
-        r.timestamp,
+        r.timestamp as ingested_at,
         r.power_plant_id,
         r.device_id,
         r.json_data
     from {{ source('public', 'raw_inverter') }} r
+    inner join public.device d
+        on r.device_id = d.id
+    where coalesce(d.is_active, false) = true
 
     {% if is_incremental() %}
-      where r.timestamp >= (
-        select coalesce(max(timestamp), '1970-01-01') - interval '5 minutes'
+      and r.timestamp >= (
+        select coalesce(max(timestamp), '1970-01-01'::timestamptz) - interval '5 minutes'
         from {{ this }}
       )
     {% endif %}
@@ -28,9 +31,9 @@ dedup as (
         *,
         row_number() over (
             partition by
-                timestamp,
+                ingested_at,
                 device_id
-            order by timestamp
+            order by ingested_at
         ) as rn
     from base
 ),
@@ -38,13 +41,16 @@ dedup as (
 final as (
 
 select
-    timestamp,
+    ingested_at as timestamp,
+
+    case
+      when nullif(trim(json_data ->> 'timestamp'), '') is null then null
+      else (json_data ->> 'timestamp')::timestamptz
+    end as device_timestamp,
+
     power_plant_id,
     device_id,
 
-    -- ======================================================
-    -- POTÊNCIAS
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'active_power'), '') is null then null
       when replace(trim(json_data ->> 'active_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -55,22 +61,15 @@ select
       else null
     end as active_power_kw,
 
-    -- ✅ FIX DEFINITIVO: normaliza 0.-xxx ANTES do cast (reactive_power)
     case
       when nullif(trim(json_data ->> 'reactive_power'), '') is null then null
-
-      -- bloqueia "faixa": ex "100-200" (mas já com string normalizada)
       when regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', '-') ~ '.*[0-9]+-[0-9]+.*'
         then null
-
-      -- cast seguro usando SEMPRE a string normalizada:
       when regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', '-') ~ '^-?[0-9]+(\.[0-9]+)?$'
         then regexp_replace(replace(trim(json_data ->> 'reactive_power'), ',', '.'), '^0\.-', '-')::numeric
-
       else null
     end as power_reactive_kvar,
 
-    -- ✅ NOVO: POTÊNCIA APARENTE (kVA) — vem do payload 'apparent_power'
     case
       when nullif(trim(json_data ->> 'apparent_power'), '') is null then null
       when replace(trim(json_data ->> 'apparent_power'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -81,7 +80,6 @@ select
       else null
     end as apparent_power_kva,
 
-    -- ✅ AJUSTE: power_input_kw agora aceita power_input OU power_dc
     case
       when nullif(trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')), '') is null then null
       when replace(trim(coalesce(json_data ->> 'power_input', json_data ->> 'power_dc')), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -102,9 +100,6 @@ select
       else null
     end as power_factor,
 
-    -- ======================================================
-    -- ENERGIA
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'total_daily_energy'), '') is null then null
       when replace(trim(json_data ->> 'total_daily_energy'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -125,9 +120,6 @@ select
       else null
     end as cumulative_active_energy_kwh,
 
-    -- ======================================================
-    -- FREQUÊNCIA / EFICIÊNCIA
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'frequency'), '') is null then null
       when replace(trim(json_data ->> 'frequency'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -148,9 +140,6 @@ select
       else null
     end as efficiency_pct,
 
-    -- ======================================================
-    -- CORRENTES AC
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'current_ac_phase_a'), '') is null then null
       when replace(trim(json_data ->> 'current_ac_phase_a'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -181,9 +170,6 @@ select
       else null
     end as current_phase_c_a,
 
-    -- ======================================================
-    -- TENSÕES AC (LINHA)
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'voltage_ac_phase_ab'), '') is null then null
       when replace(trim(json_data ->> 'voltage_ac_phase_ab'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -214,9 +200,6 @@ select
       else null
     end as line_voltage_ca_v,
 
-    -- ======================================================
-    -- DC
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'voltage_dc'), '') is null then null
       when replace(trim(json_data ->> 'voltage_dc'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -237,9 +220,6 @@ select
       else null
     end as power_dc_kw,
 
-    -- ======================================================
-    -- TEMPERATURA / ISOLAÇÃO
-    -- ======================================================
     case
       when nullif(trim(json_data ->> 'temperature_current'), '') is null then null
       when replace(trim(json_data ->> 'temperature_current'), ',', '.') ~ '.*[0-9]+-[0-9]+.*' then null
@@ -260,9 +240,6 @@ select
       else null
     end as resistance_insulation_mohm,
 
-    -- ======================================================
-    -- WORKING STATUS / ESTADO OPERACIONAL
-    -- ======================================================
     case
       when (json_data ->> 'working_status') ~ '^[0-9]+$'
       then (json_data ->> 'working_status')::int

@@ -4,29 +4,57 @@
 ) }}
 
 with base as (
+
     select
         r.timestamp,
         r.power_plant_id,
         r.device_id,
         r.json_data
     from {{ source('public','raw_tracker') }} r
+    inner join public.device d
+        on d.id = r.device_id
+       and d.is_active is true
+
     {% if is_incremental() %}
-      where r.timestamp > (select max(timestamp) from {{ this }})
+      where r.timestamp > (
+        select coalesce(max(timestamp), '1970-01-01'::timestamptz)
+        from {{ this }}
+      )
     {% endif %}
+
+),
+
+parsed as (
+
+    select
+        timestamp,
+        power_plant_id,
+        device_id,
+
+        case
+            when trim(json_data ->> 'posat') ~ '^-?\d+(\.\d+)?$'
+                then (trim(json_data ->> 'posat'))::numeric
+            else null
+        end as posicao_atual,
+
+        case
+            when trim(json_data ->> 'posal') ~ '^-?\d+(\.\d+)?$'
+                then (trim(json_data ->> 'posal'))::numeric
+            else null
+        end as posicao_alvo
+
+    from base
+
 )
 
 select
     timestamp,
     power_plant_id,
     device_id,
+    posicao_atual,
+    posicao_alvo,
 
-    -- Identificação / vínculo (dados técnicos do campo)
-    (json_data ->> 'inverter_id')::int     as inverter_id,
-    (json_data ->> 'serial_number')        as serial_number,
-    (json_data ->> 'manufacturer')         as manufacturer,
+    (posicao_alvo - posicao_atual) as diferenca_posicao,
+    abs(posicao_alvo - posicao_atual) as diferenca_posicao_abs
 
-    -- Campos analógicos
-    (json_data ->> 'angular_position_current')::numeric as angular_position_current_deg,
-    (json_data ->> 'angular_position_target')::numeric  as angular_position_target_deg
-
-from base
+from parsed
