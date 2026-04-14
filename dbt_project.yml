@@ -17,24 +17,8 @@ models:
       +materialized: view
     int:
       +materialized: view
-      int_datastudio_points:
-        +schema: analytics
     mart:
       +materialized: table
-      mart_datastudio_daily:
-        +schema: analytics
-      mart_datastudio_intraday:
-        +schema: analytics
-      mart_datastudio_monthly:
-        +schema: analytics
-      mart_datastudio_timeseries:
-        +schema: analytics
-      mart_datastudio_hist_15min:
-        +schema: analytics
-      mart_datastudio_hist_hourly:
-        +schema: analytics
-      mart_datastudio_hist_daily:
-        +schema: analytics
 seeds:
   solar_scada:
     +quote_columns: false
