@@ -751,7 +751,13 @@ weather_base as (
         wa.device_id,
         d.name as device_name,
         coalesce(dt.name, 'weather_station')::text as device_type,
-        'WEATHER 1'::text as context,
+        coalesce(
+            nullif(trim(d.display_name), ''),
+            ('WEATHER ' || dense_rank() over (
+                partition by wa.power_plant_id
+                order by wa.device_id
+            ))::text
+        ) as context,
         wa.timestamp::timestamptz as ts,
         wa.irradiance_ghi_wm2,
         wa.irradiance_poa_wm2,
@@ -836,7 +842,13 @@ relay_base as (
         d.name as device_name,
         coalesce(dv.name, 'relay')::text as device_type,
         ra.device_id,
-        'RELAY 1'::text as context,
+        coalesce(
+            nullif(trim(d.display_name), ''),
+            ('RELAY ' || dense_rank() over (
+                partition by ra.power_plant_id
+                order by ra.device_id
+            ))::text
+        ) as context,
         ra.timestamp::timestamptz as ts,
         ra.active_power_kw,
         ra.apparent_power_kva,
@@ -938,7 +950,13 @@ relay_alarm_base as (
         e.power_plant_id,
         e.device_id,
         coalesce(dt.name, 'relay')::text as device_type,
-        'RELAY 1'::text as context,
+        coalesce(
+            nullif(trim(d.display_name), ''),
+            ('RELAY ' || dense_rank() over (
+                partition by e.power_plant_id
+                order by e.device_id
+            ))::text
+        ) as context,
         date_trunc('hour', e."timestamp")::timestamptz as ts,
         e.type_en,
         lower(coalesce(e.severity, '')) as severity,
@@ -1052,7 +1070,7 @@ meter_base as (
         ma.timestamp::timestamptz as ts,
         ma.active_power_kw,
         ma.reactive_power_kvar as power_reactive_kvar,
-        null::double precision as apparent_power_kva,
+        ma.apparent_power_kva,
         ma.power_factor,
         ma.frequency_hz,
         ma.energy_import_kwh as imported_active_energy_kwh,
