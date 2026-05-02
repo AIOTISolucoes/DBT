@@ -1,5 +1,6 @@
 {{ config(
-    materialized = 'table',
+    materialized = 'incremental',
+    unique_key = ['power_plant_id', 'date_day'],
     on_schema_change = 'sync_all_columns'
 ) }}
 
@@ -41,6 +42,9 @@ source_rows as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_inverter_analog') }} a
+    {% if is_incremental() %}
+    where date_trunc('day', a.timestamp) >= current_date - interval '2 days'
+    {% endif %}
 
     union all
 
@@ -57,6 +61,9 @@ source_rows as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_meter_analog') }} a
+    {% if is_incremental() %}
+    where date_trunc('day', a.timestamp) >= current_date - interval '2 days'
+    {% endif %}
 
     union all
 
@@ -73,6 +80,9 @@ source_rows as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_weather_station_analog') }} a
+    {% if is_incremental() %}
+    where date_trunc('day', a.timestamp) >= current_date - interval '2 days'
+    {% endif %}
 
 ),
 
@@ -690,40 +700,75 @@ with_kpis as (
 
 ),
 
+accum_baseline as (
+
+    {% if is_incremental() %}
+    select
+        power_plant_id,
+        max(generation_accumulated_kwh)               as baseline_gen_kwh,
+        max(irradiation_accumulated_kwh_m2)           as baseline_irr_kwh_m2,
+        max(generation_pr_window_accumulated_kwh)     as baseline_gen_pr_kwh,
+        max(irradiation_pr_window_accumulated_kwh_m2) as baseline_irr_pr_kwh_m2,
+        max(accumulated_day_count)                    as baseline_day_count
+    from {{ this }}
+    where date_day < current_date - interval '2 days'
+    group by power_plant_id
+    {% else %}
+    select
+        null::bigint as power_plant_id,
+        0::numeric   as baseline_gen_kwh,
+        0::numeric   as baseline_irr_kwh_m2,
+        0::numeric   as baseline_gen_pr_kwh,
+        0::numeric   as baseline_irr_pr_kwh_m2,
+        0::bigint    as baseline_day_count
+    where false
+    {% endif %}
+
+),
+
 with_accum as (
 
     select
-        *,
-        sum(generation_daily_kwh) over (
-            partition by power_plant_id
-            order by date_day
+        wk.*,
+
+        coalesce(ab.baseline_gen_kwh, 0) +
+        sum(wk.generation_daily_kwh) over (
+            partition by wk.power_plant_id
+            order by wk.date_day
             rows between unbounded preceding and current row
         ) as generation_accumulated_kwh,
 
-        sum(irradiation_daily_kwh_m2) over (
-            partition by power_plant_id
-            order by date_day
+        coalesce(ab.baseline_irr_kwh_m2, 0) +
+        sum(wk.irradiation_daily_kwh_m2) over (
+            partition by wk.power_plant_id
+            order by wk.date_day
             rows between unbounded preceding and current row
         ) as irradiation_accumulated_kwh_m2,
 
-        sum(generation_pr_window_kwh) over (
-            partition by power_plant_id
-            order by date_day
+        coalesce(ab.baseline_gen_pr_kwh, 0) +
+        sum(wk.generation_pr_window_kwh) over (
+            partition by wk.power_plant_id
+            order by wk.date_day
             rows between unbounded preceding and current row
         ) as generation_pr_window_accumulated_kwh,
 
-        sum(irradiation_pr_window_kwh_m2) over (
-            partition by power_plant_id
-            order by date_day
+        coalesce(ab.baseline_irr_pr_kwh_m2, 0) +
+        sum(wk.irradiation_pr_window_kwh_m2) over (
+            partition by wk.power_plant_id
+            order by wk.date_day
             rows between unbounded preceding and current row
         ) as irradiation_pr_window_accumulated_kwh_m2,
 
+        coalesce(ab.baseline_day_count, 0) +
         count(*) over (
-            partition by power_plant_id
-            order by date_day
+            partition by wk.power_plant_id
+            order by wk.date_day
             rows between unbounded preceding and current row
         ) as accumulated_day_count
-    from with_kpis
+
+    from with_kpis wk
+    left join accum_baseline ab
+        on ab.power_plant_id = wk.power_plant_id
 
 ),
 
