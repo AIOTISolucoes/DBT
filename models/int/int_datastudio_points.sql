@@ -312,11 +312,11 @@ plant_alarm_type_points as (
         'count'::text as unit,
         'discrete'::text as data_kind,
         'historico'::text as source,
-        coalesce(
+        ('⚠ ' || coalesce(
             nullif(trim(e.description_pt), ''),
             nullif(trim(e.description_en), ''),
             ('Alarme ' || e.code::text)
-        )::text as description
+        ))::text as description
     from rt.int_events_alarms e
     join public.power_plant p
       on p.id = e.power_plant_id
@@ -641,7 +641,7 @@ inverter_alarm_base as (
         e.device_id,
         coalesce(dt.name, 'inverter')::text as device_type,
         coalesce(
-            nullif(trim(d.display_name), ''),
+            idm.display_name,
             ('INVERSOR ' || dense_rank() over (
                 partition by e.power_plant_id
                 order by e.device_id
@@ -661,6 +661,8 @@ inverter_alarm_base as (
       on d.id = e.device_id
     left join public.device_type dt
       on dt.id = d.device_type_id
+    left join inverter_device_map idm
+      on idm.device_id = e.device_id
     where e.type_en = 'alarm'
       and e.device_id is not null
       and lower(coalesce(dt.name, '')) = 'inverter'
@@ -720,11 +722,11 @@ inverter_alarm_type_points as (
         'count'::text as unit,
         'discrete'::text as data_kind,
         'historico'::text as source,
-        coalesce(
+        ('⚠ ' || coalesce(
             nullif(trim(description_pt), ''),
             nullif(trim(description_en), ''),
             ('Alarme ' || code::text)
-        )::text as description
+        ))::text as description
     from inverter_alarm_base
     where code is not null
     group by
