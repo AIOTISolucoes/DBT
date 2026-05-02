@@ -705,11 +705,8 @@ accum_baseline as (
     {% if is_incremental() %}
     select
         power_plant_id,
-        max(generation_accumulated_kwh)               as baseline_gen_kwh,
-        max(irradiation_accumulated_kwh_m2)           as baseline_irr_kwh_m2,
-        max(generation_pr_window_accumulated_kwh)     as baseline_gen_pr_kwh,
-        max(irradiation_pr_window_accumulated_kwh_m2) as baseline_irr_pr_kwh_m2,
-        max(accumulated_day_count)                    as baseline_day_count
+        max(generation_accumulated_kwh)     as baseline_gen_kwh,
+        max(irradiation_accumulated_kwh_m2) as baseline_irr_kwh_m2
     from {{ this }}
     where date_day < current_date - interval '2 days'
     group by power_plant_id
@@ -717,10 +714,7 @@ accum_baseline as (
     select
         null::bigint as power_plant_id,
         0::numeric   as baseline_gen_kwh,
-        0::numeric   as baseline_irr_kwh_m2,
-        0::numeric   as baseline_gen_pr_kwh,
-        0::numeric   as baseline_irr_pr_kwh_m2,
-        0::bigint    as baseline_day_count
+        0::numeric   as baseline_irr_kwh_m2
     where false
     {% endif %}
 
@@ -745,21 +739,18 @@ with_accum as (
             rows between unbounded preceding and current row
         ) as irradiation_accumulated_kwh_m2,
 
-        coalesce(ab.baseline_gen_pr_kwh, 0) +
         sum(wk.generation_pr_window_kwh) over (
             partition by wk.power_plant_id
             order by wk.date_day
             rows between unbounded preceding and current row
         ) as generation_pr_window_accumulated_kwh,
 
-        coalesce(ab.baseline_irr_pr_kwh_m2, 0) +
         sum(wk.irradiation_pr_window_kwh_m2) over (
             partition by wk.power_plant_id
             order by wk.date_day
             rows between unbounded preceding and current row
         ) as irradiation_pr_window_accumulated_kwh_m2,
 
-        coalesce(ab.baseline_day_count, 0) +
         count(*) over (
             partition by wk.power_plant_id
             order by wk.date_day
