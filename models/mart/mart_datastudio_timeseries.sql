@@ -1,5 +1,6 @@
 {{ config(
     materialized='incremental',
+    incremental_strategy='delete+insert',
     unique_key=['customer_id', 'power_plant_id', 'pathname', 'ts'],
     on_schema_change='append_new_columns',
     post_hook=[
