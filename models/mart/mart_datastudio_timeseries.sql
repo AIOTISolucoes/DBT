@@ -1,8 +1,9 @@
 {{ config(
     materialized='incremental',
-    incremental_strategy='delete+insert',
-    unique_key=['customer_id', 'power_plant_id', 'pathname', 'ts'],
     on_schema_change='append_new_columns',
+    pre_hook=[
+      "{% if is_incremental() %}DELETE FROM {{ this }} WHERE ts >= (SELECT max(ts) - interval '4 days' FROM {{ this }}){% endif %}"
+    ],
     post_hook=[
       "create index if not exists ix_ds_ts_cust_plant_path_ts on {{ this }} (customer_id, power_plant_id, pathname, ts)"
     ]
