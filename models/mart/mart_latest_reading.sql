@@ -18,6 +18,7 @@ with all_analog as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_inverter_analog') }} a
+    where a.timestamp >= now() - interval '2 days'
 
     union all
 
@@ -34,6 +35,7 @@ with all_analog as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_tracker_analog') }} a
+    where a.timestamp >= now() - interval '2 days'
 
     union all
 
@@ -50,6 +52,7 @@ with all_analog as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_transformer_analog') }} a
+    where a.timestamp >= now() - interval '2 days'
 
     union all
 
@@ -66,6 +69,7 @@ with all_analog as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_meter_analog') }} a
+    where a.timestamp >= now() - interval '2 days'
 
     union all
 
@@ -82,6 +86,7 @@ with all_analog as (
             - 'created_at'
             - 'updated_at' as analog_json
     from {{ ref('stg_weather_station_analog') }} a
+    where a.timestamp >= now() - interval '2 days'
 
 ),
 
