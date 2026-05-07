@@ -1,7 +1,17 @@
 {{ config(
     materialized = 'incremental',
     unique_key = ['timestamp','device_id','string_index'],
-    on_schema_change = 'sync_all_columns'
+    on_schema_change = 'sync_all_columns',
+    post_hook = [
+        {
+            "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_stg_inverter_string_plant_device_string_ts ON {{ this }} (power_plant_id, device_id, string_index, \"timestamp\" DESC) INCLUDE (string_current)",
+            "transaction": false
+        },
+        {
+            "sql": "ANALYZE {{ this }}",
+            "transaction": false
+        }
+    ]
 ) }}
 
 with base as (
