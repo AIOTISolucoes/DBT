@@ -633,6 +633,42 @@ inverter_points as (
     from inverter_base where is_communication_ok is not null
 ),
 
+inverter_string_points as (
+
+    select
+        pp.customer_id,
+        s.power_plant_id,
+        coalesce(dt.name, 'inverter')::text         as device_type,
+        s.device_id,
+        coalesce(
+            idm.display_name,
+            ('INVERSOR ' || dense_rank() over (
+                partition by s.power_plant_id
+                order by s.device_id
+            ))::text
+        )                                           as context,
+        ('string_current_' || lpad(s.string_index::text, 2, '0'))::text as point_name,
+        ('INV_' || s.device_id || '.string_current_' || lpad(s.string_index::text, 2, '0'))::text as pathname,
+        s.timestamp::timestamptz                    as ts,
+        s.string_current::double precision          as value,
+        'A'::text                                   as unit,
+        'analog'::text                              as data_kind,
+        'historico'::text                           as source,
+        ('Corrente string ' || lpad(s.string_index::text, 2, '0') || ' do inversor')::text as description
+    from rt.stg_inverter_string s
+    join public.power_plant pp
+      on pp.id = s.power_plant_id
+    left join public.device d
+      on d.id = s.device_id
+    left join public.device_type dt
+      on dt.id = d.device_type_id
+    left join inverter_device_map idm
+      on idm.device_id = s.device_id
+    where s.string_current is not null
+      and s.string_index is not null
+
+),
+
 inverter_alarm_base as (
 
     select
@@ -1343,6 +1379,8 @@ final as (
     select * from plant_alarm_type_points
     union all
     select * from inverter_points
+    union all
+    select * from inverter_string_points
     union all
     select * from inverter_alarm_points
     union all
