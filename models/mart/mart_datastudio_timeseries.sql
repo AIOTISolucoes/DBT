@@ -12,6 +12,7 @@
 select *
 from {{ ref('int_datastudio_points') }}
 where value is not null
+  and pathname not like '%string_current%'
 {% if is_incremental() %}
   and ts >= (SELECT max(ts) - interval '3 days' FROM {{ this }})
 {% endif %}

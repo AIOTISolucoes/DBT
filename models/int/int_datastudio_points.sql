@@ -1380,8 +1380,6 @@ final as (
     union all
     select * from inverter_points
     union all
-    select * from inverter_string_points
-    union all
     select * from inverter_alarm_points
     union all
     select * from inverter_alarm_type_points
