@@ -338,10 +338,15 @@ inverter_device_map as (
     select
         d.id as device_id,
         d.power_plant_id,
+        d.cabin_id,
+        c.code as cabin_code,
+        coalesce(nullif(trim(c.name), ''), nullif(trim(c.code), '')) as cabin_name,
         coalesce(nullif(trim(d.display_name), ''), d.name, ('INVERSOR ' || d.id)) as display_name
     from public.device d
     join public.device_type dt
       on dt.id = d.device_type_id
+    left join public.cabin c
+      on c.id = d.cabin_id
     where lower(coalesce(dt.name, '')) = 'inverter'
 ),
 
@@ -366,13 +371,27 @@ inverter_base as (
         ia.device_id,
         d.name as device_name,
         coalesce(dt.name, 'inverter')::text as device_type,
-        coalesce(
-            idm.display_name,
-            ('INVERSOR ' || dense_rank() over (
-                partition by ia.power_plant_id
-                order by ia.device_id
-            ))::text
-        ) as context,
+        case
+            when idm.cabin_name is not null then
+                idm.cabin_name || ' > ' || coalesce(
+                    idm.display_name,
+                    ('INVERSOR ' || dense_rank() over (
+                        partition by ia.power_plant_id
+                        order by ia.device_id
+                    ))::text
+                )
+            else
+                coalesce(
+                    idm.display_name,
+                    ('INVERSOR ' || dense_rank() over (
+                        partition by ia.power_plant_id
+                        order by ia.device_id
+                    ))::text
+                )
+        end as context,
+        idm.cabin_id,
+        idm.cabin_code,
+        idm.cabin_name,
         ia.timestamp::timestamptz as ts,
         ia.active_power_kw,
         ia.power_reactive_kvar,
@@ -1367,6 +1386,79 @@ meter_alarm_type_points as (
         ts
 ),
 
+cabin_aggregate_base as (
+    select
+        customer_id,
+        power_plant_id,
+        cabin_id,
+        cabin_code,
+        cabin_name,
+        ts,
+        sum(active_power_kw)         as active_power_kw,
+        sum(daily_active_energy_kwh) as daily_active_energy_kwh,
+        sum(power_dc_kw)             as power_dc_kw,
+        sum(power_reactive_kvar)     as power_reactive_kvar,
+        sum(apparent_power_kva)      as apparent_power_kva
+    from inverter_base
+    where cabin_id is not null
+    group by customer_id, power_plant_id, cabin_id, cabin_code, cabin_name, ts
+),
+
+cabin_aggregate_points as (
+
+    select customer_id, power_plant_id,
+           'cabin'::text as device_type,
+           cabin_id::bigint as device_id,
+           coalesce(cabin_name, 'Cabine ' || cabin_id) as context,
+           'active_power'::text as point_name,
+           ('CABIN_' || cabin_id || '.active_power')::text as pathname,
+           ts, active_power_kw::double precision as value,
+           'kW'::text as unit, 'analog'::text as data_kind, 'historico'::text as source,
+           ('Potência ativa — ' || coalesce(cabin_name, 'Cabine ' || cabin_id))::text as description
+    from cabin_aggregate_base where active_power_kw is not null
+
+    union all
+    select customer_id, power_plant_id,
+           'cabin', cabin_id::bigint,
+           coalesce(cabin_name, 'Cabine ' || cabin_id),
+           'daily_energy', ('CABIN_' || cabin_id || '.daily_energy'),
+           ts, daily_active_energy_kwh::double precision,
+           'kWh', 'analog', 'historico',
+           ('Energia diária — ' || coalesce(cabin_name, 'Cabine ' || cabin_id))
+    from cabin_aggregate_base where daily_active_energy_kwh is not null
+
+    union all
+    select customer_id, power_plant_id,
+           'cabin', cabin_id::bigint,
+           coalesce(cabin_name, 'Cabine ' || cabin_id),
+           'power_dc', ('CABIN_' || cabin_id || '.power_dc'),
+           ts, power_dc_kw::double precision,
+           'kW', 'analog', 'historico',
+           ('Potência DC — ' || coalesce(cabin_name, 'Cabine ' || cabin_id))
+    from cabin_aggregate_base where power_dc_kw is not null
+
+    union all
+    select customer_id, power_plant_id,
+           'cabin', cabin_id::bigint,
+           coalesce(cabin_name, 'Cabine ' || cabin_id),
+           'reactive_power', ('CABIN_' || cabin_id || '.reactive_power'),
+           ts, power_reactive_kvar::double precision,
+           'kvar', 'analog', 'historico',
+           ('Potência reativa — ' || coalesce(cabin_name, 'Cabine ' || cabin_id))
+    from cabin_aggregate_base where power_reactive_kvar is not null
+
+    union all
+    select customer_id, power_plant_id,
+           'cabin', cabin_id::bigint,
+           coalesce(cabin_name, 'Cabine ' || cabin_id),
+           'apparent_power', ('CABIN_' || cabin_id || '.apparent_power'),
+           ts, apparent_power_kva::double precision,
+           'kVA', 'analog', 'historico',
+           ('Potência aparente — ' || coalesce(cabin_name, 'Cabine ' || cabin_id))
+    from cabin_aggregate_base where apparent_power_kva is not null
+
+),
+
 final as (
     select * from plant_intraday
     union all
@@ -1397,6 +1489,8 @@ final as (
     select * from meter_alarm_points
     union all
     select * from meter_alarm_type_points
+    union all
+    select * from cabin_aggregate_points
 )
 
 select *
