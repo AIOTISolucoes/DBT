@@ -2,6 +2,7 @@
     materialized='incremental',
     on_schema_change='append_new_columns',
     pre_hook=[
+      "{% if is_incremental() %}DELETE FROM {{ this }} WHERE ts < now() - interval '30 days'{% endif %}",
       "{% if is_incremental() %}DELETE FROM {{ this }} WHERE ts >= (SELECT max(ts) - interval '4 days' FROM {{ this }}){% endif %}"
     ],
     post_hook=[
